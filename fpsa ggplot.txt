@@ -1,6 +1,45 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Flexible Parametric Survival Analysis (fpsa) on SAIL Databank via RODBC
+# ──────────────────────────────────────────────────────────────────────────────
 
+# 1. Load required packages
+library(RODBC)        # for DB2 connection
+library(flexsurv)     # for Royston–Parmar spline models
+library(splines)      # for natural spline basis (ns())
+library(dplyr)        # for data manipulation
+library(ggplot2)      # for plotting
 
-# 1. Fit the Royston–Parmar spline model with 3 knots
+# 2. Connect to SAIL DB2 (DSN-less)
+conn <- odbcDriverConnect(
+  paste0(
+    "Driver={IBM DB2 ODBC DRIVER};",
+    "Database=db2data;",                     # your DB name
+    "Hostname=db2.sail.ukserp.ac.uk;",       # SAIL host
+    "Port=50000;",                           # DB2 default port
+    "Protocol=TCPIP;",
+    "Uid=YOUR_USERNAME;",                    # your SAIL username
+    "Pwd=YOUR_PASSWORD;"                     # your SAIL password
+  )
+)
+
+# 3. Pull the analysis dataset
+sql <- "
+  SELECT
+    pyar,                    -- person-years at risk
+    sh_ever_flag,            -- self-harm event indicator (0/1)
+    smi_first_cond,          -- first SMI category
+    camhs_prior_smi_diag,    -- prior CAMHS contact (0/1)
+    gndr_cd,                 -- gender code (0/1)
+    age_at_smi,              -- age at first SMI
+    wimd_data_start          -- WIMD quintile (1–5)
+  FROM your_schema.your_table
+"
+df <- sqlQuery(conn, sql)
+
+# 4. Close the connection
+close(conn)
+
+# 5. Fit the Royston–Parmar spline model (3 knots)
 fpsa <- flexsurvspline(
   formula = Surv(pyar, sh_ever_flag) ~
     smi_first_cond * camhs_prior_smi_diag * gndr_cd +
@@ -10,14 +49,10 @@ fpsa <- flexsurvspline(
   k = 3
 )
 
-# 2. Define a smooth grid of times for prediction
-times <- seq(
-  from = 0,
-  to   = max(df$pyar, na.rm = TRUE),
-  length.out = 150
-)
+# 6. Specify the (coarse) time-grid for smooth curves
+times <- seq(0, max(df$pyar, na.rm = TRUE), length.out = 150)
 
-# 3. Build a pure covariate grid (no time column here)
+# 7. Build the pure covariate grid (no time column)
 covgrid <- expand.grid(
   smi_first_cond       = levels(df$smi_first_cond),
   camhs_prior_smi_diag = c(FALSE, TRUE),
@@ -35,7 +70,7 @@ covgrid <- expand.grid(
     age_at_smi           = median(df$age_at_smi, na.rm = TRUE)
   )
 
-# 4. Vectorized hazard prediction at the specified times
+# 8. Vectorized hazard prediction *only* at our 150 times
 ps_list <- summary(
   fpsa,
   newdata = covgrid,
@@ -44,14 +79,20 @@ ps_list <- summary(
   se      = FALSE
 )
 
-# 5. Bind the list of results into one data.frame for plotting
+# 9. Bind into one long data.frame, REPLICATING each covariate row
 plot_df <- bind_rows(lapply(seq_along(ps_list), function(i) {
-  tmp <- as.data.frame(ps_list[[i]])
-  tmp$time <- times
-  cbind(covgrid[i, ], tmp)
+  d      <- as.data.frame(ps_list[[i]])
+  n_time <- nrow(d)
+  
+  # replicate the i-th covrow to match n_time
+  cv_rep <- covgrid[i, , drop = FALSE][rep(1, n_time), ]
+  
+  # attach time + covariates + estimate
+  d$time <- times
+  cbind(cv_rep, d)
 }))
 
-# 6. Plot smooth hazard curves
+# 10. Plot smooth hazard curves
 ggplot(plot_df,
        aes(x = time, y = est,
            colour   = smi_first_cond,

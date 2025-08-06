@@ -1,0 +1,44 @@
+library(dplyr)
+library(ggplot2)
+
+# assume you already have `plot_df` from the four-way script
+
+# 1. Get the WIMD levels
+wimd_lvls <- levels(plot_df$wimd_data_start)
+
+# 2. Loop over each quintile, build a plot, store in a list
+plots_by_wimd <- lapply(wimd_lvls, function(q) {
+  
+  df_q <- filter(plot_df, wimd_data_start == q)
+  
+  ggplot(df_q, aes(x = time, y = est, colour = smi_first_cond)) +
+    geom_line(size = 1.2) +
+    facet_grid(camhs_prior_smi_diag ~ gndr_cd,
+               labeller = labeller(
+                 camhs_prior_smi_diag = c(`FALSE`="No prior CAMHS",
+                                          `TRUE` ="Prior CAMHS"),
+                 gndr_cd              = c(`0`="Gender 0",
+                                          `1`="Gender 1")
+               )) +
+    scale_colour_brewer("SMI type", palette="Dark2") +
+    labs(
+      title = paste("WIMD quintile", q),
+      x     = "Time since first SMI diagnosis (years)",
+      y     = "Predicted hazard of self-harm"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+})
+
+# 3. Print them (or arrange/save as you wish)
+# This will print one after the other in your plot pane:
+for(p in plots_by_wimd) print(p)
+
+# If you’d rather save each to a file:
+# for(i in seq_along(plots_by_wimd)) {
+#   ggsave(
+#     filename = paste0("hazard_WIMD_quintile_", wimd_lvls[i], ".png"),
+#     plot     = plots_by_wimd[[i]],
+#     width    = 8, height = 6, dpi = 300
+#   )
+# }
