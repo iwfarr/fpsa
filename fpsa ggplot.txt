@@ -15,10 +15,9 @@ conn <- odbcDriverConnect(
     "Driver={IBM DB2 ODBC DRIVER};",
     "Database=db2data;",                     # your DB name
     "Hostname=db2.sail.ukserp.ac.uk;",       # SAIL host
-    "Port=50000;",                           # DB2 default port
-    "Protocol=TCPIP;",
-    "Uid=YOUR_USERNAME;",                    # your SAIL username
-    "Pwd=YOUR_PASSWORD;"                     # your SAIL password
+    "Port=;",                           # DB2 default port # check wiki
+    "Protocol=;",
+
   )
 )
 
@@ -70,7 +69,7 @@ covgrid <- expand.grid(
     age_at_smi           = median(df$age_at_smi, na.rm = TRUE)
   )
 
-# 8. Vectorized hazard prediction *only* at our 150 times
+# 8. Vectorized hazard prediction 
 ps_list <- summary(
   fpsa,
   newdata = covgrid,
