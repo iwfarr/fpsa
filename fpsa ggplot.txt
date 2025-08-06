@@ -1,0 +1,77 @@
+
+
+# 1. Fit the Royston–Parmar spline model with 3 knots
+fpsa <- flexsurvspline(
+  formula = Surv(pyar, sh_ever_flag) ~
+    smi_first_cond * camhs_prior_smi_diag * gndr_cd +
+    ns(age_at_smi, df = 3) +
+    wimd_data_start,
+  data = df,
+  k = 3
+)
+
+# 2. Define a smooth grid of times for prediction
+times <- seq(
+  from = 0,
+  to   = max(df$pyar, na.rm = TRUE),
+  length.out = 150
+)
+
+# 3. Build a pure covariate grid (no time column here)
+covgrid <- expand.grid(
+  smi_first_cond       = levels(df$smi_first_cond),
+  camhs_prior_smi_diag = c(FALSE, TRUE),
+  gndr_cd              = c(0, 1),
+  wimd_data_start      = levels(df$wimd_data_start),
+  stringsAsFactors     = FALSE
+) %>%
+  transmute(
+    smi_first_cond       = factor(smi_first_cond,
+                                  levels = levels(df$smi_first_cond)),
+    camhs_prior_smi_diag = as.logical(camhs_prior_smi_diag),
+    gndr_cd              = as.numeric(gndr_cd),
+    wimd_data_start      = factor(wimd_data_start,
+                                  levels = levels(df$wimd_data_start)),
+    age_at_smi           = median(df$age_at_smi, na.rm = TRUE)
+  )
+
+# 4. Vectorized hazard prediction at the specified times
+ps_list <- summary(
+  fpsa,
+  newdata = covgrid,
+  t       = times,
+  type    = "hazard",
+  se      = FALSE
+)
+
+# 5. Bind the list of results into one data.frame for plotting
+plot_df <- bind_rows(lapply(seq_along(ps_list), function(i) {
+  tmp <- as.data.frame(ps_list[[i]])
+  tmp$time <- times
+  cbind(covgrid[i, ], tmp)
+}))
+
+# 6. Plot smooth hazard curves
+ggplot(plot_df,
+       aes(x = time, y = est,
+           colour   = smi_first_cond,
+           linetype = wimd_data_start)) +
+  geom_line(size = 1) +
+  facet_grid(
+    camhs_prior_smi_diag ~ gndr_cd,
+    labeller = labeller(
+      camhs_prior_smi_diag = c(`FALSE` = "No prior CAMHS",
+                               `TRUE`  = "Prior CAMHS"),
+      gndr_cd              = c(`0` = "Gender = 0",
+                               `1` = "Gender = 1")
+    )
+  ) +
+  scale_colour_brewer("SMI type",       palette = "Set1") +
+  scale_linetype_brewer("WIMD quintile", palette = "Set2") +
+  labs(
+    x     = "Time since first SMI diagnosis (years)",
+    y     = "Predicted hazard of self-harm",
+    title = "Self-harm hazard curves by SMI type,\nstratified by CAMHS history, gender & deprivation"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
